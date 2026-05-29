@@ -2,6 +2,7 @@ require('dotenv').config();
 const cron = require('node-cron');
 const puppeteer = require('puppeteer');
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -11,7 +12,10 @@ if (!supabaseUrl || !supabaseKey) {
   console.warn("⚠️ Warning: Supabase credentials not found in environment variables. Running in local-only mode.");
 }
 
-const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false },
+  realtime: { transport: WebSocket }
+}) : null;
 
 async function scrapeFacebookPage(pageUrl) {
   console.log(`\n[${new Date().toISOString()}] 🚀 Starting Puppeteer to scrape: ${pageUrl}`);
