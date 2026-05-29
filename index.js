@@ -71,19 +71,61 @@ async function scrapeFacebookPage(pageUrl) {
   }
 }
 
-// Target Pages
-const targetPages = [
-  'https://www.facebook.com/atallmagazine',
-  // Add other cities/water authorities here
-];
+// Delay helper function
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Process all active scraping sources
+async function processSources() {
+  if (!supabase) {
+    console.error("❌ No Supabase connection available. Exiting job.");
+    return;
+  }
+
+  // Random delay between 0 to 30 seconds at the start of the cron job to avoid exact 10:00:00 execution
+  const initialDelay = Math.floor(Math.random() * 30000);
+  console.log(`⏱️ Initial cron delay: sleeping for ${Math.round(initialDelay/1000)}s to randomize execution...`);
+  await sleep(initialDelay);
+
+  console.log("🔍 Fetching active sources from Supabase...");
+  const { data: sources, error } = await supabase
+    .from('scraping_sources')
+    .select('*')
+    .eq('is_active', true);
+
+  if (error) {
+    console.error("❌ Error fetching sources:", error.message);
+    return;
+  }
+
+  if (!sources || sources.length === 0) {
+    console.log("⚠️ No active sources found in database.");
+    return;
+  }
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    
+    // Add random delay between each scrape (15 to 45 seconds) to evade Meta limits
+    if (i > 0) {
+      const waitTime = Math.floor(Math.random() * 30000) + 15000;
+      console.log(`⏱️ Waiting ${Math.round(waitTime/1000)}s before next scrape to avoid rate limits...`);
+      await sleep(waitTime);
+    }
+
+    if (source.platform === 'facebook') {
+      await scrapeFacebookPage(source.url);
+    }
+  }
+  console.log("✅ All sources processed for this cycle.");
+}
 
 // Run immediately on startup
-targetPages.forEach(page => scrapeFacebookPage(page));
+processSources();
 
 // Schedule to run every 10 minutes
 cron.schedule('*/10 * * * *', () => {
-  console.log("⏱️ Running scheduled cron job...");
-  targetPages.forEach(page => scrapeFacebookPage(page));
+  console.log("⏱️ Cron job triggered. Starting cycle...");
+  processSources();
 });
 
 console.log("🟢 Coolify Scraper Service is running and listening for schedules...");
