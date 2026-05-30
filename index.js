@@ -55,12 +55,29 @@ async function scrapeFacebookPage(pageUrl) {
       console.log(`✅ Extracted Text: ${postData.text.substring(0, 50)}...`);
       console.log(`🔗 Post URL: ${postData.postUrl}`);
       
-      // TODO: Connect with OpenAI to analyze the text and extract area + status
+      // Send to n8n webhook
+      const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n-pvveottdwc.ramishalabi.xyz/webhook/facebook-posts";
+      console.log(`🚀 Sending data to n8n webhook: ${webhookUrl}`);
       
-      // Example of saving to Supabase if connected
-      if (supabase) {
-        // await supabase.from('service_announcements').insert({...});
-        console.log("✅ Data ready to be sent to Supabase.");
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pageUrl: pageUrl,
+            postUrl: postData.postUrl,
+            postId: postData.postUrl.split('fbid=')[1]?.split('&')[0] || postData.postUrl,
+            postText: postData.text
+          })
+        });
+        
+        if (response.ok) {
+          console.log("✅ Successfully sent post to n8n!");
+        } else {
+          console.log(`❌ Failed to send to n8n. Status: ${response.status}`);
+        }
+      } catch (err) {
+        console.error("❌ Error sending to n8n webhook:", err.message);
       }
     }
   } catch (error) {
