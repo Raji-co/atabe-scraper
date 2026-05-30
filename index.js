@@ -17,6 +17,9 @@ const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supaba
   realtime: { transport: WebSocket }
 }) : null;
 
+// Keep track of processed posts in memory to avoid sending duplicates
+const processedPosts = new Set();
+
 async function scrapeFacebookPage(pageUrl) {
   console.log(`\n[${new Date().toISOString()}] 🚀 Starting Puppeteer to scrape: ${pageUrl}`);
   
@@ -56,6 +59,11 @@ async function scrapeFacebookPage(pageUrl) {
       console.log(`🔗 Post URL: ${postData.postUrl}`);
       
       // Send to n8n webhook
+      if (processedPosts.has(postData.postUrl)) {
+        console.log("⚠️ Post already processed in this session. Skipping n8n trigger to save AI tokens.");
+        return;
+      }
+      
       const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n-pvveottdwc.ramishalabi.xyz/webhook/facebook-posts";
       console.log(`🚀 Sending data to n8n webhook: ${webhookUrl}`);
       
@@ -73,6 +81,13 @@ async function scrapeFacebookPage(pageUrl) {
         
         if (response.ok) {
           console.log("✅ Successfully sent post to n8n!");
+          processedPosts.add(postData.postUrl); // Remember it so we don't send it again
+          
+          // Keep memory clean, only keep last 50 posts
+          if (processedPosts.size > 50) {
+            const firstItem = processedPosts.values().next().value;
+            processedPosts.delete(firstItem);
+          }
         } else {
           console.log(`❌ Failed to send to n8n. Status: ${response.status}`);
         }
