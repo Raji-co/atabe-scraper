@@ -59,7 +59,10 @@ async function scrapeFacebookPage(pageUrl) {
       console.log(`🔗 Post URL: ${postData.postUrl}`);
       
       // Send to n8n webhook
-      if (processedPosts.has(postData.postUrl)) {
+      // Create a unique identifier: use the URL if found, otherwise use the first 100 characters of the text
+      const uniqueId = postData.postUrl !== 'URL not found' ? postData.postUrl : postData.text.substring(0, 100);
+      
+      if (processedPosts.has(uniqueId)) {
         console.log("⚠️ Post already processed in this session. Skipping n8n trigger to save AI tokens.");
         return;
       }
@@ -81,7 +84,7 @@ async function scrapeFacebookPage(pageUrl) {
         
         if (response.ok) {
           console.log("✅ Successfully sent post to n8n!");
-          processedPosts.add(postData.postUrl); // Remember it so we don't send it again
+          processedPosts.add(uniqueId); // Remember it so we don't send it again
           
           // Keep memory clean, only keep last 50 posts
           if (processedPosts.size > 50) {
