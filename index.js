@@ -36,79 +36,66 @@ async function scrapeFacebookPage(pageUrl) {
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     await new Promise(r => setTimeout(r, 5000));
 
-    const postsData = await page.evaluate(() => {
+    const postData = await page.evaluate(() => {
       const articles = document.querySelectorAll('div[role="article"]');
       if (!articles || articles.length === 0) return { error: 'No posts found or blocked by login wall.' };
 
-      // Get up to top 5 posts
-      const posts = Array.from(articles).slice(0, 5).map(post => {
-        const text = post.innerText || "";
-        const links = Array.from(post.querySelectorAll('a'));
-        const timeLink = links.find(a => a.href.includes('/posts/') || a.href.includes('/permalink/'));
-        
-        return {
-          text: text.substring(0, 1500),
-          postUrl: timeLink ? timeLink.href : 'URL not found'
-        };
-      });
-
+      const firstPost = articles[0];
+      const text = firstPost.innerText;
+      const links = Array.from(firstPost.querySelectorAll('a'));
+      const timeLink = links.find(a => a.href.includes('/posts/') || a.href.includes('/permalink/'));
+      
       return {
         success: true,
-        posts: posts
+        text: text.substring(0, 1500),
+        postUrl: timeLink ? timeLink.href : 'URL not found'
       };
     });
 
-    if (postsData.error) {
-      console.log(`❌ Error: ${postsData.error}`);
+    if (postData.error) {
+      console.log(`❌ Error: ${postData.error}`);
     } else {
-      console.log(`✅ Found ${postsData.posts.length} posts. Processing them...`);
+      console.log(`✅ Extracted Text: ${postData.text.substring(0, 50)}...`);
+      console.log(`🔗 Post URL: ${postData.postUrl}`);
       
-      // Process posts in reverse order (oldest of the top 5 first) so the newest is processed last and overrides
-      const postsToProcess = postsData.posts.reverse();
-
-      for (const postData of postsToProcess) {
-        console.log(`\n📄 Checking post: ${postData.postUrl}`);
+      // Send to n8n webhook
+      // Create a unique identifier: use the URL if found, otherwise use the first 100 characters of the text
+      const uniqueId = postData.postUrl !== 'URL not found' ? postData.postUrl : postData.text.substring(0, 100);
+      
+      if (processedPosts.has(uniqueId)) {
+        console.log("⚠️ Post already processed in this session. Skipping n8n trigger to save AI tokens.");
+        return;
+      }
+      
+      const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n-pvveottdwc.ramishalabi.xyz/webhook/facebook-posts";
+      console.log(`🚀 Sending data to n8n webhook: ${webhookUrl}`);
+      
+      try {
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pageUrl: pageUrl,
+            postUrl: postData.postUrl,
+            postId: postData.postUrl.split('fbid=')[1]?.split('&')[0] || postData.postUrl,
+            postText: postData.text
+          })
+        });
         
-        // Create a unique identifier
-        const uniqueId = postData.postUrl !== 'URL not found' ? postData.postUrl : postData.text.substring(0, 100);
-        
-        if (processedPosts.has(uniqueId)) {
-          console.log("⚠️ Post already processed in this session. Skipping.");
-          continue;
-        }
-        
-        const webhookUrl = process.env.N8N_WEBHOOK_URL || "https://n8n-pvveottdwc.ramishalabi.xyz/webhook/facebook-posts";
-        console.log(`🚀 Sending data to n8n webhook...`);
-        
-        try {
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pageUrl: pageUrl,
-              postUrl: postData.postUrl,
-              postId: postData.postUrl.split('fbid=')[1]?.split('&')[0] || postData.postUrl,
-              postText: postData.text
-            })
-          });
+        if (response.ok) {
+          console.log("✅ Successfully sent post to n8n!");
+          processedPosts.add(uniqueId); // Remember it so we don't send it again
           
-          if (response.ok) {
-            console.log("✅ Successfully sent post to n8n!");
-            processedPosts.add(uniqueId);
-            
-            if (processedPosts.size > 200) {
-              const firstItem = processedPosts.values().next().value;
-              processedPosts.delete(firstItem);
-            }
-          } else {
-            console.log(`❌ Failed to send to n8n. Status: ${response.status}`);
+          // Keep memory clean, only keep last 50 posts
+          if (processedPosts.size > 50) {
+            const firstItem = processedPosts.values().next().value;
+            processedPosts.delete(firstItem);
           }
-        } catch (err) {
-          console.error("❌ Error sending to n8n webhook:", err.message);
+        } else {
+          console.log(`❌ Failed to send to n8n. Status: ${response.status}`);
         }
-        
-        // Wait a few seconds between sending posts to not overload n8n
-        await new Promise(r => setTimeout(r, 2000));
+      } catch (err) {
+        console.error("❌ Error sending to n8n webhook:", err.message);
       }
     }
   } catch (error) {
